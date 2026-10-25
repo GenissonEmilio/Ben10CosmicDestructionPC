@@ -1,0 +1,32 @@
+name: PS2 Linux source validation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import safety and dispatch preservation
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m compileall -q tools
+          bash -n tools/linux/build_tools.sh
+      - name: Build runtime and compiler without game files
+        run: tools/linux/build_tools.sh
+      - name: Check relocatable tools
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          kit = pathlib.Path('artifacts/compiler').resolve()
+          env = dict(os.environ, LD_LIBRARY_PATH=str(kit / 'lib'))
+          for name in ('ps2_analyzer', 'ps2_recomp'):
+              result = subprocess.run([str(kit / 'bin' / name)], env=env, capture_output=True, text=True)
+              assert result.returncode == 1, (name, result.returncode, result.stderr)
+              assert 'Usage:' in result.stdout, (name, result.stdout)
+          assert not (kit / 'lib/libbase.a').exists(), 'Title-specific God of War overrides must be absent'
+          PY

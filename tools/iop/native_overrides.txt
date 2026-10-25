@@ -1,0 +1,2 @@
+# No game-specific IRX overrides have been validated for SLUS-21938 yet.
+# Do not reuse God of War II module offsets for this game.
