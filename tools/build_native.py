@@ -117,6 +117,7 @@ def build(kit, stage, optimize="2", jobs=1):
     (stage / "build.json").write_text(json.dumps({
         "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "optimization": optimize, "gameplay_validated": False,
+        "compiler_id": json.loads((kit / "manifest.json").read_text())["build_id"],
         "runtime_key": fingerprint(libs, flags),
     }, indent=2) + "\n")
     print(executable, flush=True)

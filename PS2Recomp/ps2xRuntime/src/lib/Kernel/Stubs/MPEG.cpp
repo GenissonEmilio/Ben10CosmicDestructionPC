@@ -2384,6 +2384,9 @@ namespace ps2_stubs
         const uint32_t availableBytes = getRegU32(ctx, 6);
         const uint32_t ringBaseAddr = getRegU32(ctx, 7);
         const uint32_t ringSize = readAbiArg4(rdram, ctx);
+        if (entryIdx < 16 && std::getenv("COSMIC_DIAGNOSTICS"))
+            std::fprintf(stderr, "[cosmic-demux] mp=%08x data=%08x available=%u ring=%08x size=%u\n",
+                         mpegAddr, dataAddr, availableBytes, ringBaseAddr, ringSize);
 
         std::vector<MpegStreamCallbackEvent> callbackEvents;
         std::vector<uint32_t> completedMpegIds;
@@ -2415,6 +2418,9 @@ namespace ps2_stubs
             decodedCount = playback.decodedFrames.size();
             traceIdx = g_mpeg_stub_state.demuxRingTraceCount++;
         }
+        if (entryIdx < 16 && std::getenv("COSMIC_DIAGNOSTICS"))
+            std::fprintf(stderr, "[cosmic-demux] consumed=%zu frames=%zu callbacks=%zu backpressure=%d\n",
+                         consumed, decodedCount, callbackEvents.size(), backpressured);
 
         if (backpressured)
         {
@@ -2811,20 +2817,14 @@ namespace ps2_stubs
     void sceMpegInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         (void)rdram;
+        (void)runtime;
         std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
-        const uint64_t cdStreamGeneration = g_mpeg_stub_state.cdStreamGeneration;
-        const uint64_t cdStreamBytesProduced = g_mpeg_stub_state.cdStreamBytesProduced;
-        const uint64_t cdStreamBytesDemuxed = g_mpeg_stub_state.cdStreamBytesDemuxed;
-        const bool cdStreamEofPending = g_mpeg_stub_state.cdStreamEofPending;
-        const bool currentCdStreamEofSeen = g_mpeg_stub_state.currentCdStreamEofSeen;
-        resetMpegStubStateUnlocked();
+        // This SDK initializes IPU hardware after Create/Add*Callback. Its
+        // per-player callbacks remain live; clearing them starves the game's
+        // elementary-stream ring while host frames accumulate behind it.
+        // Full host-state reset belongs to runtime startup, not this SDK call.
         g_mpeg_stub_state.initialized = true;
-        g_mpeg_stub_state.cdStreamGeneration = cdStreamGeneration;
-        g_mpeg_stub_state.cdStreamBytesProduced = cdStreamBytesProduced;
-        g_mpeg_stub_state.cdStreamBytesDemuxed = cdStreamBytesDemuxed;
-        g_mpeg_stub_state.cdStreamEofPending = cdStreamEofPending;
-        g_mpeg_stub_state.currentCdStreamEofSeen = currentCdStreamEofSeen;
-        setReturnU32(ctx, 0u);
+        setReturnU32(ctx, 1u);
     }
 
     void sceMpegIsEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

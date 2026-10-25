@@ -15,12 +15,15 @@ def probe(game, boot, destination, kit, seconds=45, visible=False, buttons=""):
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "memcards").mkdir(exist_ok=True)
+    (destination / "pad-control").write_text("0\n")
     env = dict(os.environ)
     for name in ("PYTHONHOME", "PYTHONPATH", "GI_TYPELIB_PATH", "GIO_EXTRA_MODULES", "GTK_PATH"):
         env.pop(name, None)
     env.update(LD_LIBRARY_PATH=str(Path(kit).resolve() / "lib"), LP_NUM_THREADS="2",
                GOW_WINDOW="960x540", COSMIC_SAVE_DIR=str(destination / "memcards"),
                COSMIC_SHOT_DIR=str(destination / "frames"), COSMIC_EXIT_SECONDS=str(seconds),
+               COSMIC_SHOT_INTERVAL="10",
+               COSMIC_PAD_CONTROL=str(destination / "pad-control"),
                # Compatibility with the first boot binary built from the base kit.
                GOW2_SHOT_DIR=str(destination / "frames"), GOW2_EXIT_SECONDS=str(seconds),
                PS2X_IOP_NATIVE=env.get("PS2X_IOP_NATIVE", "1"), PS2X_GS_WORKER="1")
@@ -61,7 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("--boot", type=Path, default=ROOT / "work/disc/SLUS_219.38")
     parser.add_argument("--kit", type=Path, default=ROOT / "work/compiler")
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--seconds", type=int, choices=range(5, 121), default=45)
+    parser.add_argument("--seconds", type=int, choices=range(5, 901), default=45)
     parser.add_argument("--visible", action="store_true")
     parser.add_argument("--buttons", default="")
     args = parser.parse_args()

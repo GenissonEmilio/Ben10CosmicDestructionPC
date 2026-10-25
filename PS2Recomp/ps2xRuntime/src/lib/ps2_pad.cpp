@@ -230,7 +230,14 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         data[5] = IsKeyDown(KEY_I) ? 0 : IsKeyDown(KEY_K) ? 255 : 128;
     }
 
-    const uint32_t scripted = scriptedButtons();
+    uint32_t scripted = scriptedButtons();
+    // Optional local probe control; absent in normal launcher sessions.
+    if (const char *control = std::getenv("COSMIC_PAD_CONTROL"))
+        if (FILE *file = std::fopen(control, "r")) {
+            unsigned mask = 0;
+            if (std::fscanf(file, "%x", &mask) == 1) scripted |= mask & 0xfffffu;
+            std::fclose(file);
+        }
     btns &= ~uint16_t(scripted);
     if (scripted & 0x10000) data[7] = 0;
     if (scripted & 0x20000) data[7] = 255;

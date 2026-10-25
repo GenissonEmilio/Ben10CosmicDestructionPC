@@ -42,7 +42,8 @@ void gow2DesktopSnapshot() {
     if (!folder || elapsed < nextShot) return;
     std::filesystem::create_directories(folder);
     const std::string file = std::string(folder)+"/frame_"+std::to_string(int(nextShot))+".png";
-    nextShot += 20;
+    const char *interval = std::getenv("COSMIC_SHOT_INTERVAL");
+    nextShot += interval ? std::clamp(std::atof(interval), 1.0, 60.0) : 20;
     rlDrawRenderBatchActive(); Image image = LoadImageFromScreen();
     ExportImage(image,file.c_str()); UnloadImage(image);
 }

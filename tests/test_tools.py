@@ -11,6 +11,7 @@ sys.path[:0] = [str(ROOT / "tools"), str(ROOT / "tools/desktop")]
 from compact_register import compact
 from adopt_translation import retain_shared_declarations, adopt
 from import_disc import Budget, ImportError_, candidates, extract_zip, inspect_disc, safe_name
+from model import Library
 
 
 class ImportTests(unittest.TestCase):
@@ -58,6 +59,22 @@ class ImportTests(unittest.TestCase):
 
 
 class TranslationTests(unittest.TestCase):
+    def test_launcher_requires_the_installed_compiler_version(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            kit = root / 'kit'; kit.mkdir()
+            (kit / 'manifest.json').write_text(json.dumps({'build_id': 'new'}))
+            library = Library(root / 'data', kit)
+            (library.work / 'disc').mkdir(parents=True)
+            (library.work / 'disc/SLUS_219.38').write_bytes(b'fixture')
+            (library.work / 'game').write_bytes(b'fixture')
+            marker = library.work / 'build.json'
+            marker.write_text(json.dumps({'sha256': 'fixture', 'compiler_id': 'old'}))
+            self.assertFalse(library.ready(), 'launcher accepted a build from a different compiler kit')
+            marker.write_text(json.dumps({'sha256': 'fixture', 'compiler_id': 'new'}))
+            self.assertTrue(library.ready())
+
     def fixture(self, root, names):
         root.mkdir()
         (root / "ps2_recompiled_functions.h").write_text('#pragma once\n' + ''.join(

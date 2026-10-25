@@ -11,6 +11,37 @@
 #include "Stubs/MPEG.h"
 
 namespace {
+void captureMpegStream(uint8_t *ram, R5900Context *context, PS2Runtime *) {
+    const uint32_t message = getRegU32(context, 5);
+    const uint32_t destination = getRegU32(context, 6);
+    std::memcpy(ram + destination, ram + message + 12, 4);
+    SET_GPR_U32(context, 2, 1);
+    context->pc = getRegU32(context, 31);
+}
+
+void mpegInitPreservesPreviouslyRegisteredCallbacks() {
+    using namespace iop_test;
+    PS2Runtime runtime;
+    require(runtime.memory().initialize(), "guest RAM initialization failed");
+    auto *ram = runtime.memory().getRDRAM();
+    require(runtime.registerFunction(0x1000, captureMpegStream), "MPEG test callback registration failed");
+    R5900Context context{};
+    SET_GPR_U32(&context, 4, 0x2000); SET_GPR_U32(&context, 5, 0);
+    SET_GPR_U32(&context, 6, 0); SET_GPR_U32(&context, 7, 0x1000);
+    SET_GPR_U32(&context, 8, 0x3000); SET_GPR_U32(&context, 29, 0x18000);
+    ps2_stubs::sceMpegAddStrCallback(ram, &context, &runtime);
+    ps2_stubs::sceMpegInit(ram, &context, &runtime);
+    require(getRegU32(&context, 2) == 1, "MPEG Init did not report success");
+    const uint8_t pes[] = {0, 0, 1, 0xe0, 0, 7, 0x80, 0, 0, 0, 0, 1, 0xb7};
+    std::memcpy(ram + 0x4000, pes, sizeof(pes));
+    SET_GPR_U32(&context, 4, 0x2000); SET_GPR_U32(&context, 5, 0x4000);
+    SET_GPR_U32(&context, 6, sizeof(pes));
+    ps2_stubs::sceMpegDemuxPss(ram, &context, &runtime);
+    require(*reinterpret_cast<uint32_t *>(ram + 0x3000) == 4,
+            "MPEG Init discarded a video callback installed before hardware initialization");
+    ps2_stubs::resetMpegStubState();
+}
+
 void mpegWorkspaceStaysInsideCallerStorage() {
     using namespace iop_test;
     PS2Runtime runtime;
@@ -211,6 +242,7 @@ int main(int argc, char **argv) {
     interruptCommandSignalsCompletion();
     commandReachesRegisteredIopHandler();
     commandExtraDataUsesIopAddressSpace();
+    mpegInitPreservesPreviouslyRegisteredCallbacks();
     mpegWorkspaceStaysInsideCallerStorage();
     extractedCdAndBusyCommands(std::filesystem::path(argv[1]));
     std::cout << "Native regression checks passed\n";

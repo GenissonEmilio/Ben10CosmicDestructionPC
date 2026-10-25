@@ -19,7 +19,8 @@ Estado de desenvolvimento em 25/10/2026:
 - Acrescentados destinos indiretos de tabelas/vtables e continuações de chamadas ausentes no mapa inicial.
 - Testes C++ sem ROM validam tarefas durante `DelayThread`, leitura de setores, estado de CD ocupado, argumentos de comandos, callbacks de conclusão, reset de handlers e separação dos espaços de memória.
 - Dez testes Python validam importação, preservação do dispatch e rollback da atualização do código gerado.
-- Em teste limitado local, o executável nativo exibiu o carregamento com Omnitrix e a tela original de criação de save, com texto e interface renderizados. Isso ainda não valida uma partida.
-- Menu principal, combate, áudio correto, persistência dos saves e campanha **ainda não validados**.
+- Em testes locais limitados, o executável nativo exibiu o carregamento com Omnitrix, criou os arquivos de save e voltou a lê-los em outra execução, reproduziu vídeos de abertura e chegou à tela original "Press Start". Isso ainda não valida uma partida.
+- Corrigidos preservação dos callbacks durante `sceMpegInit` e layout do workspace MPEG, com testes sintéticos de entrega de pacotes e frames sem sobrescrever memória do executável.
+- Primeira fase, combate, áudio correto, perfil salvo durante gameplay e campanha **ainda não validados**.
 
 Nenhuma release jogável será declarada apenas pela conclusão do build.
