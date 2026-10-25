@@ -2,11 +2,62 @@
 #include "CD.h"
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
+#include "ps2x/iop/disc_source.h"
 
 namespace ps2_stubs
 {
     namespace
     {
+        bool cdReadPending = false;
+        // The SDK bridge and the IOP must agree on physical sector numbers.
+        // Pseudo LBAs cannot satisfy a game that reads ISO directory sectors.
+        ps2x::iop::DiscSource *extractedDisc()
+        {
+            static std::filesystem::path previous;
+            static std::unique_ptr<ps2x::iop::DiscSource> source;
+            const auto root = PS2Runtime::getIoPaths().cdRoot;
+            if (root != previous)
+            {
+                previous = root;
+                source = ps2x::iop::DiscSource::openExtracted(root);
+            }
+            return source.get();
+        }
+
+        bool readDiscSectors(uint32_t lbn, uint32_t sectors, uint8_t *destination, size_t bytes)
+        {
+            if (auto *disc = extractedDisc())
+            {
+                if (uint64_t{sectors} * 2048u != bytes)
+                    return false;
+                const bool ok = disc->readSectors(lbn, sectors, destination);
+                g_lastCdError = ok ? 0 : -1;
+                return ok;
+            }
+            return readCdSectors(lbn, sectors, destination, bytes);
+        }
+
+        bool registerDiscFile(const std::string &path, CdFileEntry &entry)
+        {
+            if (auto *disc = extractedDisc())
+            {
+                const auto file = disc->findFile(path);
+                if (!file || file->directory)
+                {
+                    g_lastCdError = -1;
+                    return false;
+                }
+                entry.hostPath = PS2Runtime::getIoPaths().cdRoot / file->name;
+                entry.baseLbn = file->lsn;
+                entry.sizeBytes = file->size;
+                entry.sectors = (file->size + 2047u) / 2048u;
+                g_cdFilesByKey[cdPathKey(path)] = entry;
+                g_lastCdError = 0;
+                return true;
+            }
+            return registerCdFile(path, entry);
+        }
+
         constexpr uint32_t kCdStreamBlocking = 1u;
         constexpr uint32_t kDvdSectorsPerSecondX1 = 675u;
         constexpr uint32_t kDvdSectorsPerSecondX4 = kDvdSectorsPerSecondX1 * 4u;
@@ -206,6 +257,14 @@ namespace ps2_stubs
 
     void sceCdRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // A second non-blocking command must observe the outstanding command.
+        // Completing every call immediately made this game's acceptance loop
+        // issue the same directory-sector read forever.
+        if (cdReadPending)
+        {
+            setReturnS32(ctx, 0);
+            return;
+        }
         const uint32_t a0 = getRegU32(ctx, 4); // usually lbn
         const uint32_t a1 = getRegU32(ctx, 5); // usually sector count
         const uint32_t a2 = getRegU32(ctx, 6); // usually destination buffer
@@ -240,7 +299,7 @@ namespace ps2_stubs
                 return true;
             }
 
-            return readCdSectors(args.lbn, args.sectors, rdram + offset, bytes);
+            return readDiscSectors(args.lbn, args.sectors, rdram + offset, bytes);
         };
 
         CdReadArgs selected{a0, a1, a2, "a0/a1/a2"};
@@ -315,6 +374,7 @@ namespace ps2_stubs
 
         if (ok)
         {
+            cdReadPending = true;
             g_cdStreamingLbn = selected.lbn + selected.sectors;
             setReturnS32(ctx, 1); // command accepted/success
             return;
@@ -325,6 +385,7 @@ namespace ps2_stubs
 
     void sceCdSync(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cdReadPending = false; // host read has completed; acknowledge its result
         setReturnS32(ctx, 0); // 0 = completed/not busy
     }
 
@@ -495,7 +556,7 @@ namespace ps2_stubs
                 bytes = maxBytes;
             }
 
-            if (!readCdSectors(lbn, sectors, rdram + offset, bytes))
+            if (!readDiscSectors(lbn, sectors, rdram + offset, bytes))
             {
                 ok = false;
                 break;
@@ -600,7 +661,7 @@ namespace ps2_stubs
         }
 
         CdFileEntry entry;
-        bool found = registerCdFile(path, entry);
+        bool found = registerDiscFile(path, entry);
         CdFileEntry resolvedEntry = entry;
         std::string resolvedPath;
 
@@ -808,7 +869,7 @@ namespace ps2_stubs
 
                 const uint32_t readLbn = g_cdStreamingLbn;
                 const size_t readBytes = static_cast<size_t>(sectors) * kCdSectorSize;
-                if (!readCdSectors(readLbn, sectors, rdram + offset, readBytes))
+                if (!readDiscSectors(readLbn, sectors, rdram + offset, readBytes))
                 {
                     finishCdStRead(rdram, ctx, state, g_lastCdError);
                     return;

@@ -30,3 +30,8 @@ jobs:
               assert 'Usage:' in result.stdout, (name, result.stdout)
           assert not (kit / 'lib/libbase.a').exists(), 'Title-specific God of War overrides must be absent'
           PY
+      - name: Native CD, IOP scheduling and SIF regression checks (synthetic data)
+        run: |
+          docker run --rm --init --cpus=2 --memory=2g --memory-swap=2g --network=none \
+            -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
+            cosmic-ps2-linux-builder bash tools/linux/test_native.sh

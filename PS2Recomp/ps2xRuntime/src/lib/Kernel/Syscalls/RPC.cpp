@@ -985,16 +985,44 @@ namespace ps2_syscalls
         uint32_t packetSize = getRegU32(ctx, 6);
         uint32_t srcExtra = getRegU32(ctx, 7);
 
-        uint32_t sp = getRegU32(ctx, 29);
-        uint32_t destExtra = 0;
-        uint32_t sizeExtra = 0;
-        readStackU32(rdram, sp, 0x10, destExtra);
-        readStackU32(rdram, sp, 0x14, sizeExtra);
+        // EE SDK callers pass arguments five and six in t0/t1. Reading the
+        // caller's stack instead interpreted a saved value and return address
+        // as a destination and byte count, overwriting low guest memory.
+        const uint32_t destExtra = getRegU32(ctx, 8);
+        const uint32_t sizeExtra = getRegU32(ctx, 9);
 
-        if (sizeExtra > 0 && srcExtra && destExtra)
+        constexpr uint32_t commandMailbox = 0x8000u;
+        if (!runtime || packetSize < 16u || packetSize > 112u ||
+            (packetAddr & PS2_RAM_MASK) > PS2_RAM_SIZE - packetSize)
         {
-            rpcCopyToRdram(rdram, destExtra, srcExtra, sizeExtra);
+            setReturnS32(ctx, 0);
+            return;
         }
+        if (sizeExtra > 0u)
+        {
+            if (!srcExtra || !destExtra || sizeExtra > PS2_RAM_SIZE ||
+                (srcExtra & PS2_RAM_MASK) > PS2_RAM_SIZE - sizeExtra ||
+                !runtime->isIopMemoryRange(destExtra, sizeExtra) ||
+                !runtime->writeIopMemory(destExtra, rdram + (srcExtra & PS2_RAM_MASK), sizeExtra))
+            {
+                setReturnS32(ctx, 0);
+                return;
+            }
+        }
+        std::array<uint8_t, 112> packet{};
+        std::memcpy(packet.data(), rdram + (packetAddr & PS2_RAM_MASK), packetSize);
+        const uint32_t sizeWord = packetSize | (sizeExtra << 8u);
+        std::memcpy(packet.data(), &sizeWord, sizeof(sizeWord));
+        std::memcpy(packet.data() + 4u, &destExtra, sizeof(destExtra));
+        std::memcpy(packet.data() + 8u, &cid, sizeof(cid));
+        if (!runtime->writeIopMemory(commandMailbox, packet.data(), packetSize))
+        {
+            setReturnS32(ctx, 0);
+            return;
+        }
+        PS2IopTransport::notifyTransfer(runtime, rdram, {
+            ps2x::iop::SifTransferKind::SetDma, ps2x::iop::SifTransferPhase::AfterCopy,
+            packetAddr, commandMailbox, packetSize});
 
         static int logCount = 0;
         if (logCount < 5)

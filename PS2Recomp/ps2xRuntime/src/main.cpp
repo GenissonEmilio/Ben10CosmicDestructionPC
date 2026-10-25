@@ -18,6 +18,10 @@ void ps2InstallEePageWatch(PS2Runtime &runtime);
 #include <exception>
 #include <algorithm>
 #include <cstdlib>
+#include <thread>
+#include <chrono>
+#include <cstdio>
+#include "runtime/ee_scheduler.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -234,7 +238,24 @@ int main(int argc, char *argv[])
         ps2InstallEeDiff(runtime);
         ps2InstallEeWatch(runtime);
         ps2InstallEePageWatch(runtime);
+        std::jthread diagnostics;
+        if (std::getenv("COSMIC_DIAGNOSTICS"))
+            diagnostics = std::jthread([&runtime](std::stop_token stop)
+            {
+                while (!stop.stop_requested())
+                {
+                    for (int i = 0; i < 50 && !stop.stop_requested(); ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (stop.stop_requested()) break;
+                    const auto snapshot = runtime.eeScheduler().snapshot();
+                    for (const auto &thread : snapshot.threads)
+                        std::fprintf(stderr, "[cosmic-ee] id=%d pc=%08x ra=%08x state=%d wait=%d waitId=%d depth=%u\n",
+                            thread.id, thread.pc, thread.ra, int(thread.status), int(thread.waitReason), thread.waitId, thread.invocationDepth);
+                }
+            });
         runtime.run();
+        diagnostics.request_stop();
+        if (diagnostics.joinable()) diagnostics.join();
 
 #ifdef _DEBUG
         ps2_log::print_saved_location();

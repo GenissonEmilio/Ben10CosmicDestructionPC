@@ -59,6 +59,17 @@ def build(kit, stage, optimize="2", jobs=1):
         raise ValueError("O recompilador não gerou arquivos C++.")
     batches = [files[i:i + 32] for i in range(0, len(files), 32)]
     batches.append([ROOT / "PS2Recomp/ps2xRuntime/src/main.cpp"])
+    # These small runtime units replace the corresponding archive members. In
+    # particular, the base kit must not install God of War's IOP address hooks.
+    batches.extend([[ROOT / name] for name in (
+        "PS2Recomp/ps2xIOP/src/native/iop_native_overrides.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/gow2_desktop.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/CD.cpp",
+        "PS2Recomp/ps2xIOP/src/emulator/iop_emulator.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/RPC.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/SIF.cpp",
+    )])
+    batches.extend([[path] for path in sorted((ROOT / "overrides").glob("*.cpp"))])
     # Compile only our main: God of War's libbase.a contains title-specific patches.
     stopped = threading.Event()
     def compile_batch(item):

@@ -13,3 +13,5 @@ Os overrides de God of War II, seu mapa de funções, suas capturas de IOP/VU e 
 Para a primeira prova de execução local, foram reutilizadas bibliotecas estáticas genéricas e o GCC portátil do kit de GodOfWar2PC; `libbase.a`, que contém patches específicos de God of War II, foi excluída. O script de build público recompila as bibliotecas a partir do código incluído.
 
 O projeto https://github.com/ExtremestoneGG/Cosmic-Recompi foi consultado; ele tem como alvo Xbox 360/Windows e não foi incorporado a esta implementação PS2.
+
+O helper de testes sintéticos `tests/support/iop_compat_test_support.h` também vem da base PS2Recomp/GodOfWar2PC (GPL-3.0). Os testes não contêm código ou arquivos de jogos.

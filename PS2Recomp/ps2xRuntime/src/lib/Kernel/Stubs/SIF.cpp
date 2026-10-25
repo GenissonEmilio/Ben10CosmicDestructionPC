@@ -232,6 +232,9 @@ namespace ps2_stubs
                             const void *packet,
                             size_t packetSize) noexcept
     {
+        static unsigned commandTraceCount = 0u;
+        if (std::getenv("COSMIC_IOP_COMMAND_TRACE") && commandTraceCount++ < 32u)
+            std::fprintf(stderr, "[cosmic-ee-command] cid=%x bytes=%zu\n", commandId, packetSize);
         if (!rdram || !runtime || !packet || packetSize < 16u || packetSize > 112u)
             return false;
 
@@ -293,6 +296,8 @@ namespace ps2_stubs
     {
         const uint32_t cid = getRegU32(ctx, 4);
         const uint32_t handler = getRegU32(ctx, 5);
+        if (std::getenv("COSMIC_IOP_COMMAND_TRACE"))
+            std::fprintf(stderr, "[cosmic-ee-command] register cid=%x handler=%x\n", cid, handler);
         const uint32_t argument = getRegU32(ctx, 6);
         std::lock_guard<std::mutex> lock(g_sifCmdStateMutex);
         g_sifCmdHandlers[cid] = SifCmdHandler{handler, argument};

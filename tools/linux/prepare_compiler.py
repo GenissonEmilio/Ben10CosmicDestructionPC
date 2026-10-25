@@ -34,7 +34,7 @@ def deps(binary,directory,skip_system=True):
             continue
         copy(src,directory / src.name)
 
-for name in ('PS2Recomp','config','tools'):
+for name in ('PS2Recomp','config','overrides','tools'):
     copy(ROOT / name,OUT / 'source' / name)
 for name in ('raylib.h','raymath.h','rlgl.h'):
     copy(BUILD / '_deps/raylib-src/src' / name,OUT / 'source/raylib' / name)

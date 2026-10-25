@@ -152,6 +152,7 @@ namespace ps2x::iop::detail
             modules.clear();
             nativeRanges.clear();
             nativeOverrides.clear();
+            commandHandlers.clear();
             imports.reset();
             rpc.reset();
             cdvd.reset();
@@ -168,6 +169,7 @@ namespace ps2x::iop::detail
             totalInstructions = 0;
             eeCycleCarry = 0;
             activeCpu = nullptr;
+            scheduledCpu = nullptr;
             lastError.clear();
             servicingDmaInterrupts = false;
             servicingGuestCallbacks = false;
@@ -337,6 +339,35 @@ namespace ps2x::iop::detail
 
             if (iequals(call.library, "loadcore") && loadcore.dispatchImport(call.ordinal, cpu))
                 return ImportDisposition::Handled;
+
+            if (iequals(call.library, "sifcmd") && call.ordinal == 10u)
+            {
+                commandHandlers[cpu.gpr[4]] = {cpu.gpr[5], cpu.gpr[6], cpu.gpr[28]};
+                if (std::getenv("COSMIC_IOP_COMMAND_TRACE"))
+                    std::fprintf(stderr, "[cosmic-iop] register command=%x handler=%x arg=%x\n", cpu.gpr[4], cpu.gpr[5], cpu.gpr[6]);
+                cpu.gpr[2] = 0u;
+                return ImportDisposition::Handled;
+            }
+            if (iequals(call.library, "sifcmd") && call.ordinal == 11u)
+            {
+                commandHandlers.erase(cpu.gpr[4]);
+                cpu.gpr[2] = 0u;
+                return ImportDisposition::Handled;
+            }
+
+            // Module entry points run outside a scheduled IOP thread. DelayThread
+            // must still give newly started workers time to initialize (FMOD
+            // waits for one of those workers to set its ready flag).
+            if ((iequals(call.library, "thbase") || iequals(call.library, "threadman")) &&
+                call.ordinal == 33u && scheduledCpu == nullptr && callDepth != 0u)
+            {
+                const uint64_t delay = (uint64_t{cpu.gpr[4]} * kIopClockHz + 999999u) / 1000000u;
+                const uint64_t target = totalCycles + std::max<uint64_t>(delay, 1u);
+                while (totalCycles < target)
+                    runCycles(std::min<uint64_t>(target - totalCycles, kDefaultSlice * 16u));
+                cpu.gpr[2] = 0u;
+                return ImportDisposition::Handled;
+            }
 
             // GoW2-Port: an ordinal these libraries do not handle falls through to the "unhandled import"
             // warning below (and returns 0) instead of failing silently with $v0 untouched.
@@ -831,7 +862,16 @@ namespace ps2x::iop::detail
                     }
                     const uint64_t before = totalCycles;
                     const auto cpuStart = nativeStats ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-                    runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
+                    {
+                        struct ScheduledCpuGuard
+                        {
+                            CpuState *&slot;
+                            CpuState *previous;
+                            ~ScheduledCpuGuard() { slot = previous; }
+                        } guard{scheduledCpu, scheduledCpu};
+                        scheduledCpu = &next->cpu;
+                        runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
+                    }
                     if (nativeStats)
                         cpuSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - cpuStart).count();
                     kernel.endTimeslice(*next, kThreadReturnSentinel);
@@ -1076,6 +1116,9 @@ namespace ps2x::iop::detail
         uint64_t totalInstructions = 0;
         uint64_t eeCycleCarry = 0;
         CpuState *activeCpu = nullptr;
+        CpuState *scheduledCpu = nullptr;
+        struct CommandHandler { uint32_t function, argument, gp; };
+        std::unordered_map<uint32_t, CommandHandler> commandHandlers;
         std::string lastError;
         bool servicingDmaInterrupts = false;
         bool servicingGuestCallbacks = false;
@@ -1149,6 +1192,28 @@ namespace ps2x::iop::detail
 
     void IopEmulator::onSifTransfer(const SifTransfer &transfer)
     {
+        // Private HLE command mailbox below all loaded IRX modules. The EE
+        // transport writes a complete standard SIF packet here before notifying.
+        constexpr uint32_t commandMailbox = 0x8000u;
+        if (transfer.kind == SifTransferKind::SetDma && transfer.phase == SifTransferPhase::AfterCopy &&
+            transfer.destinationAddress == commandMailbox && transfer.size >= 16u && transfer.size <= 112u)
+        {
+            const uint32_t command = m_impl->memory.read32(commandMailbox + 8u);
+            if ((m_impl->memory.read32(commandMailbox) & 0xFFu) != transfer.size)
+                return;
+            const auto found = m_impl->commandHandlers.find(command);
+            static unsigned commandTraces = 0;
+            if (std::getenv("COSMIC_IOP_COMMAND_TRACE") && commandTraces++ < 24u)
+                std::fprintf(stderr, "[cosmic-iop] command=%x handler=%x packet_size=%u\n", command,
+                    found != m_impl->commandHandlers.end() ? found->second.function : 0u, transfer.size);
+            if (found != m_impl->commandHandlers.end())
+            {
+                const auto handler = found->second;
+                (void)m_impl->callFunction(handler.function, commandMailbox, handler.argument, 0u, 0u, handler.gp);
+                m_impl->runReadyThreads(kDefaultSlice * 16u);
+            }
+            return;
+        }
         m_impl->rpc.onSifTransfer(transfer);
     }
 
