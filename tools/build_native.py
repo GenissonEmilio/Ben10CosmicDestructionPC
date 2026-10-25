@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import tempfile
 from compact_register import compact
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,11 +110,20 @@ def build(kit, stage, optimize="2", jobs=1):
             ("libps2_runtime.a", "libps2_iop.a", "liblibmpeg2.a", "libraylib.a", "libX11.so.6")]
     libs.append(tc / "sysroot/usr/lib/x86_64-linux-gnu/libGL.so")
     executable = stage / "game"
-    subprocess.run([*flags, *map(str, result), "-Wl,--start-group", *map(str, libs),
-                    "-Wl,--end-group", "-static-libstdc++", "-static-libgcc",
-                    "-Wl,-rpath-link," + str(kit / "lib"),
-                    "-Wl,-rpath-link," + str(tc / "sysroot/usr/lib/x86_64-linux-gnu"),
-                    "-pthread", "-ldl", "-lm", "-o", str(executable)], env=env, check=True)
+    # Linking a new build must neither truncate a running executable nor remove
+    # the previous one when ld fails. Replace only a completely linked result.
+    descriptor, temporary = tempfile.mkstemp(prefix=".game-", dir=stage)
+    os.close(descriptor)
+    try:
+        subprocess.run([*flags, *map(str, result), "-Wl,--start-group", *map(str, libs),
+                        "-Wl,--end-group", "-static-libstdc++", "-static-libgcc",
+                        "-Wl,-rpath-link," + str(kit / "lib"),
+                        "-Wl,-rpath-link," + str(tc / "sysroot/usr/lib/x86_64-linux-gnu"),
+                        "-pthread", "-ldl", "-lm", "-o", temporary], env=env, check=True)
+        Path(temporary).chmod(0o755)
+        os.replace(temporary, executable)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     (stage / "build.json").write_text(json.dumps({
         "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "optimization": optimize, "gameplay_validated": False,

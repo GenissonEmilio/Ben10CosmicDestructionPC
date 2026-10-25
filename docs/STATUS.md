@@ -22,6 +22,13 @@ Estado de desenvolvimento em 25/10/2026:
 - Em testes locais limitados, o executável nativo exibiu o carregamento com Omnitrix, criou os arquivos de save e voltou a lê-los em outra execução, reproduziu vídeos de abertura e chegou à tela original "Press Start". Isso ainda não valida uma partida.
 - Corrigidos preservação dos callbacks durante `sceMpegInit` e layout do workspace MPEG, com testes sintéticos de entrega de pacotes e frames sem sobrescrever memória do executável.
 - Corrigido o tradutor para ler a instrução de delay slot real quando o mapa corta uma função imediatamente após um salto. Quatro programas ELF sintéticos são traduzidos, compilados e executados para verificar JAL, BEQ, BEQL e BNEL, incluindo a anulação do slot. O CI executa esses testes sem arquivos de jogo.
-- Primeira fase, combate, áudio correto, perfil salvo durante gameplay e campanha **ainda não validados**.
+- Depois da correção de delay slots, o teste local confirmou a aceitação do nome do perfil, o menu "New Game", a introdução da campanha, a preparação da missão e a renderização da primeira cena 3D, com o diálogo inicial de Gwen.
+- A cena 3D apresenta texturas com faixas/blocos. Depois dos diálogos iniciais, uma chamada indireta do motor de scripts em `0x002BD004` tenta executar `0x00DB8088`, que contém dados. A causa ainda está em investigação; ignorar essa chamada não seria uma correção.
+- Acrescentado diagnóstico opcional do descritor de scripts, ativado por `COSMIC_DIAGNOSTICS`, para investigar esse bloqueio.
+- O kit aberto Linux foi compilado integralmente a partir deste código em `artifacts/compiler` (ID local `eac4df0c3dadc0a28016a14b`). Falta validar o jogo usando esse kit recém-gerado; o executável de investigação usa o kit anterior com unidades do runtime atualizadas.
+- O link de novas versões passa a usar um arquivo temporário e substituição atômica após sucesso, preservando o executável anterior se o linker falhar. Esta alteração recebeu verificação de sintaxe; ainda falta exercitar o caminho em um novo link nativo.
+- Movimento, combate, áudio correto, persistência do perfil nomeado e campanha **ainda não validados**. Não há medição confiável de FPS nem release jogável.
+
+Ponto de retomada e artefatos locais: [HANDOFF.md](HANDOFF.md). Os testes em execução foram encerrados a pedido do usuário para permitir o reinício do notebook.
 
 Nenhuma release jogável será declarada apenas pela conclusão do build.

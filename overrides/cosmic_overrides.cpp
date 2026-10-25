@@ -4,8 +4,31 @@
 #include "ps2_runtime_macros.h"
 #include "ps2_syscalls.h"
 #include "ps2_stubs.h"
+#include <cstdio>
+#include <cstdlib>
 
 namespace {
+PS2Runtime::RecompiledFunction scriptInvoke = nullptr;
+void traceScriptInvoke(uint8_t *ram, R5900Context *context, PS2Runtime *runtime)
+{
+    const uint32_t object = getRegU32(context, 4) & PS2_RAM_MASK;
+    if (object < PS2_RAM_SIZE - 16) {
+        const uint32_t descriptor = runtime->memory().read32(object + 12) & PS2_RAM_MASK;
+        if (descriptor < PS2_RAM_SIZE - 32) {
+            const uint32_t target = runtime->memory().read32(descriptor + 16);
+            if (target && !runtime->hasFunction(target)) {
+                std::fprintf(stderr, "[cosmic-script] object=%08x descriptor=%08x target=%08x ra=%08x\n",
+                             object, descriptor, target, getRegU32(context, 31));
+                std::fprintf(stderr, "[cosmic-script] descriptor words:");
+                for (unsigned i = 0; i < 8; ++i)
+                    std::fprintf(stderr, " %08x", runtime->memory().read32(descriptor + i * 4));
+                std::fprintf(stderr, "\n");
+            }
+        }
+    }
+    scriptInvoke(ram, context, runtime);
+}
+
 void sendInternalCommand(uint8_t *ram, R5900Context *context, PS2Runtime *runtime)
 {
     // _sceSifSendCmd has an extra mode argument before the packet pointer.
@@ -32,6 +55,10 @@ void applyCosmicMemoryLayout(PS2Runtime &runtime)
     // This SDK variant's layer-aware search otherwise waits for CDVDFSV RPC
     // 0x80000597. The supported disc has one layer; use the verified ISO index.
     runtime.replaceFunction(0x004570C0u, ps2_stubs::sceCdSearchFile);
+    if (std::getenv("COSMIC_DIAGNOSTICS")) {
+        scriptInvoke = runtime.lookupFunction(0x002BCF30u);
+        if (scriptInvoke) runtime.replaceFunction(0x002BCF30u, traceScriptInvoke);
+    }
 }
 }
 
