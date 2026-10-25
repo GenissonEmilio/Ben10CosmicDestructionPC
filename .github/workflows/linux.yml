@@ -35,3 +35,8 @@ jobs:
           docker run --rm --init --cpus=2 --memory=2g --memory-swap=2g --network=none \
             -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
             cosmic-ps2-linux-builder bash tools/linux/test_native.sh
+      - name: Execute translated MIPS branches split at delay slots (synthetic ELF)
+        run: |
+          docker run --rm --init --cpus=2 --memory=2g --memory-swap=2g --network=none \
+            -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
+            cosmic-ps2-linux-builder python3 tools/linux/test_translation.py

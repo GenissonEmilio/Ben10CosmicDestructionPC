@@ -2088,7 +2088,13 @@ namespace ps2recomp
         uint32_t start = function.start;
         uint32_t end = function.end;
 
-        for (uint32_t address = start; address < end; address += 4)
+        // Function discovery can split a call from its delay instruction. Decode
+        // that instruction from the ELF even when it belongs to the next range;
+        // replacing it with a synthetic NOP changes arguments and can corrupt
+        // arbitrary guest memory. Keep the dispatch range itself unchanged.
+        for (uint32_t address = start;
+             address < end || (address == end && !instructions.empty() && instructions.back().hasDelaySlot);
+             address += 4)
         {
             try
             {

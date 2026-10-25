@@ -18,9 +18,10 @@ Estado de desenvolvimento em 25/10/2026:
 - A busca de arquivo com camada usa o índice real do disco de camada única suportado.
 - Acrescentados destinos indiretos de tabelas/vtables e continuações de chamadas ausentes no mapa inicial.
 - Testes C++ sem ROM validam tarefas durante `DelayThread`, leitura de setores, estado de CD ocupado, argumentos de comandos, callbacks de conclusão, reset de handlers e separação dos espaços de memória.
-- Dez testes Python validam importação, preservação do dispatch e rollback da atualização do código gerado.
+- Onze testes Python validam importação, preservação do dispatch, rollback da atualização do código gerado e invalidação do cache quando o kit muda.
 - Em testes locais limitados, o executável nativo exibiu o carregamento com Omnitrix, criou os arquivos de save e voltou a lê-los em outra execução, reproduziu vídeos de abertura e chegou à tela original "Press Start". Isso ainda não valida uma partida.
 - Corrigidos preservação dos callbacks durante `sceMpegInit` e layout do workspace MPEG, com testes sintéticos de entrega de pacotes e frames sem sobrescrever memória do executável.
+- Corrigido o tradutor para ler a instrução de delay slot real quando o mapa corta uma função imediatamente após um salto. Quatro programas ELF sintéticos são traduzidos, compilados e executados para verificar JAL, BEQ, BEQL e BNEL, incluindo a anulação do slot. O CI executa esses testes sem arquivos de jogo.
 - Primeira fase, combate, áudio correto, perfil salvo durante gameplay e campanha **ainda não validados**.
 
 Nenhuma release jogável será declarada apenas pela conclusão do build.
