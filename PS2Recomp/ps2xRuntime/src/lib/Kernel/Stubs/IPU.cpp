@@ -7,9 +7,9 @@ namespace
     constexpr uint32_t REG_IPU_CTRL = 0x10002010u;
     constexpr uint32_t REG_IPU_CMD = 0x10002000u;
     constexpr uint32_t REG_IPU_IN_FIFO = 0x10007010u;
-    constexpr uint32_t IQVAL_BASE = 0x1721e0u;
-    constexpr uint32_t VQVAL_BASE = 0x172230u;
-    constexpr uint32_t SETD4_CHCR_ENTRY = 0x126428u;
+    constexpr uint32_t IQVAL_BASE = 0x00518ac0u;
+    constexpr uint32_t VQVAL_BASE = 0x00518b10u;
+    constexpr uint32_t SETD4_CHCR_ENTRY = 0x00475f80u;
 
     void completeIpuInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -79,7 +79,6 @@ namespace ps2_stubs
             invocation.context = *ctx;
             invocation.context.pc = SETD4_CHCR_ENTRY;
             SET_GPR_U32(&invocation.context, 4, 1u);
-            SET_GPR_U32(&invocation.context, 29, 0u);
             SET_GPR_U32(&invocation.context, 31, 0u);
             invocation.onComplete = [rdram, runtime](const R5900Context &, R5900Context &parent)
             {

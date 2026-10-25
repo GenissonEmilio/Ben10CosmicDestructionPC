@@ -3,6 +3,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "ps2_syscalls.h"
+#include "ps2_stubs.h"
 
 namespace {
 void sendInternalCommand(uint8_t *ram, R5900Context *context, PS2Runtime *runtime)
@@ -28,6 +29,9 @@ void applyCosmicMemoryLayout(PS2Runtime &runtime)
     // beyond the kernel mirror, instead of overwriting the game's free list.
     runtime.setPrivateGuestHeap(0x000A0000u, 0x000FF000u);
     runtime.replaceFunction(0x00446578u, sendInternalCommand);
+    // This SDK variant's layer-aware search otherwise waits for CDVDFSV RPC
+    // 0x80000597. The supported disc has one layer; use the verified ISO index.
+    runtime.replaceFunction(0x004570C0u, ps2_stubs::sceCdSearchFile);
 }
 }
 

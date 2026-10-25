@@ -4,10 +4,12 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "tools"), str(ROOT / "tools/desktop")]
 from compact_register import compact
+from adopt_translation import retain_shared_declarations, adopt
 from import_disc import Budget, ImportError_, candidates, extract_zip, inspect_disc, safe_name
 
 
@@ -53,6 +55,62 @@ class ImportTests(unittest.TestCase):
             image.write_bytes(b"CD001")
             with self.assertRaises(ImportError_):
                 inspect_disc(image)
+
+
+class TranslationTests(unittest.TestCase):
+    def fixture(self, root, names):
+        root.mkdir()
+        (root / "ps2_recompiled_functions.h").write_text('#pragma once\n' + ''.join(
+            f'void {name}(uint8_t* rdram, R5900Context* ctx, PS2Runtime *runtime);\n'
+            for name in names))
+        (root / "register_functions.cpp").write_text('// dispatch\n')
+        for name in names:
+            (root / (name + '.cpp')).write_text('// generated ' + name)
+
+    def test_added_entries_preserve_header_and_existing_batches(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old, new, extra = root / 'old', root / 'new', root / 'extra'
+            self.fixture(old, ['one'])
+            self.fixture(new, ['one', 'two'])
+            self.assertEqual(retain_shared_declarations(old, new, extra), 1)
+            self.assertEqual((old / 'ps2_recompiled_functions.h').read_bytes(),
+                             (new / 'ps2_recompiled_functions.h').read_bytes())
+            self.assertFalse((new / 'two.cpp').exists())
+            self.assertTrue((extra / 'two.cpp').exists())
+            self.assertIn('void two(', (new / 'register_functions.cpp').read_text())
+
+    def test_removed_function_uses_full_rebuild(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old, new, extra = root / 'old', root / 'new', root / 'extra'
+            self.fixture(old, ['one', 'two'])
+            self.fixture(new, ['one', 'three'])
+            before = (new / 'ps2_recompiled_functions.h').read_bytes()
+            self.assertEqual(retain_shared_declarations(old, new, extra), 0)
+            self.assertEqual(before, (new / 'ps2_recompiled_functions.h').read_bytes())
+            self.assertFalse(extra.exists())
+
+    def test_second_rename_failure_restores_previous_translation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old, new, extra, staged = (root / n for n in ('old', 'new', 'extra', 'staged'))
+            self.fixture(old, ['one'])
+            self.fixture(new, ['two'])
+            extra.mkdir(); (extra / 'old.cpp').write_text('old')
+            staged.mkdir(); (staged / 'new.cpp').write_text('new')
+            import os
+            rename = os.replace
+            def fail(source, destination):
+                if Path(source) == staged:
+                    raise OSError('synthetic rename failure')
+                rename(source, destination)
+            with patch('adopt_translation.os.replace', side_effect=fail), self.assertRaises(OSError):
+                adopt(old, new, extra, staged)
+            self.assertTrue((old / 'one.cpp').exists())
+            self.assertTrue((new / 'two.cpp').exists())
+            self.assertEqual((extra / 'old.cpp').read_text(), 'old')
+            self.assertEqual((staged / 'new.cpp').read_text(), 'new')
 
 
 class DispatchTests(unittest.TestCase):

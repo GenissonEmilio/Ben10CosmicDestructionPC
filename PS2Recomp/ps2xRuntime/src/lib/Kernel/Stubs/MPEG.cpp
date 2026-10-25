@@ -891,12 +891,8 @@ namespace ps2_stubs
 
         uint32_t readAbiArg4(uint8_t *rdram, R5900Context *ctx)
         {
-            const uint32_t regArg = getRegU32(ctx, 8);
-            if (regArg != 0u)
-            {
-                return regArg;
-            }
-            return readStackArg(rdram, ctx, 0x10u);
+            (void)rdram;
+            return getRegU32(ctx, 8); // EE ABI: the fifth argument stays in t0, including zero.
         }
 
         MpegPlaybackState &getPlaybackState(uint32_t mpegAddr)
@@ -2181,20 +2177,16 @@ namespace ps2_stubs
     {
         (void)ctx;
         (void)runtime;
-        static const uint32_t kRefGlobalAddrs[] = {
-            0x171800u, 0x17180Cu, 0x171818u, 0x171804u, 0x171810u, 0x17181Cu};
-        for (uint32_t addr : kRefGlobalAddrs)
+        const uint8_t *mpeg = getMemPtr(rdram, getRegU32(ctx, 4));
+        if (!mpeg) { setReturnU32(ctx, 0); return; }
+        const uint32_t inner = *reinterpret_cast<const uint32_t *>(mpeg + 0x40);
+        for (uint32_t offset : {0x1C8u, 0x1D8u, 0x1E8u, 0x1CCu, 0x1DCu, 0x1ECu})
         {
-            uint8_t *p = getMemPtr(rdram, addr);
-            if (!p)
-                continue;
-            uint32_t ptr = *reinterpret_cast<uint32_t *>(p);
-            if (ptr != 0u)
-            {
-                uint8_t *q = getMemPtr(rdram, ptr + 0x28u);
-                if (q)
-                    *reinterpret_cast<uint32_t *>(q) = 0u;
-            }
+            const uint8_t *slot = getMemPtr(rdram, inner + offset);
+            const uint32_t reference = slot ? *reinterpret_cast<const uint32_t *>(slot) : 0;
+            if (reference)
+                if (uint8_t *status = getMemPtr(rdram, reference + 0x28))
+                    *reinterpret_cast<uint32_t *>(status) = 0;
         }
         setReturnU32(ctx, 1u);
     }
@@ -2222,7 +2214,12 @@ namespace ps2_stubs
         const uint32_t uVar3 = (param_2 + 3u) & 0xFFFFFFFCu;
         const int32_t iVar2_signed = static_cast<int32_t>(param_3) - static_cast<int32_t>(uVar3 - param_2);
 
-        if (iVar2_signed <= 0x117)
+        // SLUS-21938 uses the newer SDK with reference storage inside the
+        // caller's work area, rather than the older SDK's executable globals.
+        if (!rdram || iVar2_signed < 0x19A0 || param_1 == 0 ||
+            (param_1 & PS2_RAM_MASK) > PS2_RAM_SIZE - 0x44u ||
+            (param_2 & PS2_RAM_MASK) > PS2_RAM_SIZE ||
+            param_3 > PS2_RAM_SIZE - (param_2 & PS2_RAM_MASK))
         {
             setReturnU32(ctx, 0u);
             return;
@@ -2246,64 +2243,41 @@ namespace ps2_stubs
             g_mpeg_stub_state.callbacksByMpeg.erase(param_1);
         }
 
-        const uint32_t puVar4 = uVar3 + 0x108u;
-        const uint32_t innerSize = static_cast<uint32_t>(iVar2_signed) - 0x118u;
-
+        std::memset(rdram + (param_2 & PS2_RAM_MASK), 0, param_3);
+        const uint32_t arena = uVar3 + 0x118u;
+        const uint32_t storage = uVar3 + 0x19A0u;
+        const uint32_t remaining = static_cast<uint32_t>(iVar2_signed) - 0x19A0u;
+        const uint32_t scratch = (storage + 7u) & ~7u;
+        const uint32_t endScratch = scratch + 0x800u;
+        if (endScratch > storage + remaining) { setReturnU32(ctx, 0); return; }
         mpegGuestWrite32(rdram, param_1 + 0x40, uVar3);
-
-        const uint32_t a1_init = uVar3 + 0x118u;
-        mpegGuestWrite32(rdram, puVar4 + 0x0, a1_init);
-        mpegGuestWrite32(rdram, puVar4 + 0x4, innerSize);
-        mpegGuestWrite32(rdram, puVar4 + 0x8, a1_init);
-        mpegGuestWrite32(rdram, puVar4 + 0xC, a1_init);
-
-        const uint32_t allocResult = runtime ? runtime->guestMalloc(0x600, 8u) : (uVar3 + 0x200u);
-        mpegGuestWrite32(rdram, uVar3 + 0x44, allocResult);
-
-        // param_1[0..2] = 0; param_1[4..0xe] = 0xffffffff/0 as per decompilation
-        mpegGuestWrite32(rdram, param_1 + 0x00, 0);
-        mpegGuestWrite32(rdram, param_1 + 0x04, 0);
-        mpegGuestWrite32(rdram, param_1 + 0x08, 0);
-        mpegGuestWrite64(rdram, param_1 + 0x10, 0xFFFFFFFFFFFFFFFFULL);
-        mpegGuestWrite64(rdram, param_1 + 0x18, 0xFFFFFFFFFFFFFFFFULL);
+        for (unsigned offset : {0u, 4u, 8u}) mpegGuestWrite32(rdram, param_1 + offset, 0);
+        for (unsigned offset : {0x10u, 0x18u, 0x28u, 0x30u})
+            mpegGuestWrite64(rdram, param_1 + offset, UINT64_MAX);
         mpegGuestWrite64(rdram, param_1 + 0x20, 0);
-        mpegGuestWrite64(rdram, param_1 + 0x28, 0xFFFFFFFFFFFFFFFFULL);
-        mpegGuestWrite64(rdram, param_1 + 0x30, 0xFFFFFFFFFFFFFFFFULL);
         mpegGuestWrite64(rdram, param_1 + 0x38, 0);
-
-        static const unsigned s_zeroOffsets[] = {
-            0xB4, 0xB8, 0xBC, 0xC0, 0xC4, 0xC8, 0xCC, 0xD0, 0xD4, 0xD8, 0xDC, 0xE0, 0xE4, 0xE8, 0xF8,
-            0x0C, 0x14, 0x2C, 0x34, 0x3C,
-            0x48, 0xFC, 0x100, 0x104, 0x70, 0x90, 0xAC};
-        for (unsigned off : s_zeroOffsets)
-            mpegGuestWrite32(rdram, uVar3 + off, 0u);
-        mpegGuestWrite32(rdram, uVar3 + 0x00, 0u); // isEnd (sceMpegIsEnd reads it)
-        mpegGuestWrite64(rdram, uVar3 + 0x78, 0);
-        mpegGuestWrite64(rdram, uVar3 + 0x88, 0);
-
-        mpegGuestWrite64(rdram, uVar3 + 0xF0, 0xFFFFFFFFFFFFFFFFULL);
-        mpegGuestWrite32(rdram, uVar3 + 0x1C, 0x1209F8u);
-        mpegGuestWrite32(rdram, uVar3 + 0x24, 0x120A08u);
-        mpegGuestWrite32(rdram, uVar3 + 0xB0, 1u);
-        mpegGuestWrite32(rdram, uVar3 + 0x9C, 0xFFFFFFFFu);
-        mpegGuestWrite32(rdram, uVar3 + 0x80, 0xFFFFFFFFu);
-        mpegGuestWrite32(rdram, uVar3 + 0x94, 0xFFFFFFFFu);
-        mpegGuestWrite32(rdram, uVar3 + 0x98, 0xFFFFFFFFu);
-
-        mpegGuestWrite32(rdram, 0x1717BCu, param_1);
-
-        static const uint32_t s_refValues[] = {
-            0x171A50u, 0x171C58u, 0x171CC0u, 0x171D28u, 0x171D90u,
-            0x171AB8u, 0x171B20u, 0x171B88u, 0x171BF0u};
-        for (unsigned i = 0; i < 9u; ++i)
-            mpegGuestWrite32(rdram, 0x171800u + i * 4u, s_refValues[i]);
-
-        uint32_t setDynamicRet = a1_init;
-        if (uint8_t *p = getMemPtr(rdram, puVar4 + 8))
-            setDynamicRet = *reinterpret_cast<uint32_t *>(p);
-        mpegGuestWrite32(rdram, puVar4 + 12, setDynamicRet);
-
-        setReturnU32(ctx, setDynamicRet);
+        mpegGuestWrite32(rdram, arena, storage);
+        mpegGuestWrite32(rdram, arena + 4, remaining);
+        mpegGuestWrite32(rdram, arena + 8, endScratch);
+        mpegGuestWrite32(rdram, arena + 12, endScratch);
+        mpegGuestWrite32(rdram, uVar3 + 0x60, scratch);
+        mpegGuestWrite32(rdram, uVar3 + 0x24, 0x00463258u);
+        mpegGuestWrite32(rdram, uVar3 + 0x30, 0x00463280u);
+        mpegGuestWrite64(rdram, uVar3 + 0x100, UINT64_MAX);
+        for (unsigned offset : {0x98u, 0xA8u, 0xACu, 0xB0u, 0x860u})
+            mpegGuestWrite32(rdram, uVar3 + offset, UINT32_MAX);
+        mpegGuestWrite32(rdram, uVar3 + 0x868, param_1);
+        mpegGuestWrite32(rdram, uVar3 + 0xC4, 1);
+        mpegGuestWrite32(rdram, uVar3 + 0x828, 1);
+        mpegGuestWrite32(rdram, uVar3 + 0x830, 0x70003600u);
+        mpegGuestWrite32(rdram, uVar3 + 0x5A0, 0x70000000u);
+        mpegGuestWrite32(rdram, uVar3 + 0x5A4, 0x70001800u);
+        mpegGuestWrite32(rdram, uVar3 + 0x6E0, 0x70001B00u);
+        mpegGuestWrite32(rdram, uVar3 + 0x6E4, 0x70003300u);
+        const unsigned refs[] = {0x1C8, 0x1CC, 0x1D4, 0x1D8, 0x1DC, 0x1E4, 0x1E8, 0x1EC, 0x1F4};
+        for (unsigned i = 0; i < 9; ++i)
+            mpegGuestWrite32(rdram, uVar3 + refs[i], uVar3 + 0x1F8 + i * 0x68);
+        setReturnU32(ctx, 1);
     }
 
     void sceMpegDelete(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -2766,11 +2740,11 @@ namespace ps2_stubs
             const uint32_t iVar1 = *reinterpret_cast<uint32_t *>(base + 0x40);
             if (uint8_t *inner = getMemPtr(rdram, iVar1))
             {
-                *reinterpret_cast<uint32_t *>(inner + 0xb0) = 1;
-                *reinterpret_cast<uint32_t *>(inner + 0xd8) = (getRegU32(ctx, 5) & 0x0FFFFFFFu) | 0x20000000u;
-                *reinterpret_cast<uint32_t *>(inner + 0xe4) = getRegU32(ctx, 6);
-                *reinterpret_cast<uint32_t *>(inner + 0xdc) = 0;
-                *reinterpret_cast<uint32_t *>(inner + 0xe0) = 0;
+                *reinterpret_cast<uint32_t *>(inner + 0xc4) = 1;
+                *reinterpret_cast<uint32_t *>(inner + 0xec) = (getRegU32(ctx, 5) & 0x0FFFFFFFu) | 0x20000000u;
+                *reinterpret_cast<uint32_t *>(inner + 0xf8) = getRegU32(ctx, 6);
+                *reinterpret_cast<uint32_t *>(inner + 0xf0) = 0;
+                *reinterpret_cast<uint32_t *>(inner + 0xf4) = 0;
             }
         }
 
@@ -2796,30 +2770,8 @@ namespace ps2_stubs
             std::cerr << "[MPEG:diag] GetPicture mpeg=0x" << std::hex << mpegAddr << " image=0x" << imageAddr
                       << " mbcount=0x" << entryMbCount << std::dec << " have=" << haveFrame << " frame=" << frameCount
                       << " size=" << width << "x" << height << " pts=" << frame.pts90k << " sum=" << sum << std::endl;
-            // the game's movie audio state (USA): sound-stream globals 0x304CEC.. and the movie struct's audio ring
-            const auto word = [rdram](uint32_t a) { return *reinterpret_cast<const uint32_t *>(rdram + (a & 0x1FFFFFFu)); };
-            const uint32_t movie = word(0x304F20u);
-            std::cerr << "[MPEG:diag] audio mode=" << word(0x304D08u) << " iopBuf=0x" << std::hex << word(0x304CECu) << std::dec
-                      << " size=" << word(0x304CF0u) << " started=" << word(0x304CF4u) << " sent=" << word(0x304CF8u)
-                      << " wpos=" << word(0x304CFCu);
-            if (movie != 0u)
-                std::cerr << " ring.mode=" << word(movie + 0x144u) << " ring.size=" << word(movie + 0x100u)
-                          << " ring.rd=" << word(movie + 0x104u) << " ring.fill=" << word(movie + 0x108u)
-                          << " full=" << word(movie + 0x134u);
-            std::cerr << std::endl;
-            if ((s_mpegDiagCount % 50u) == 0u)
-            {
-                std::cerr << "[MPEG:diag] audio packets queued=" << g_audioQueued << " taken=" << g_audioTaken
-                          << " refused=" << g_audioRefused << std::endl;
-            }
-            if (movie != 0u && s_mpegDiagCount == 40u) // the audio stream header the callback kept (+0x10C, 0x28 bytes)
-            {
-                std::cerr << "[MPEG:diag] audio header";
-                for (uint32_t i = 0; i < 0x28u; i += 4u)
-                    std::cerr << ' ' << std::hex << word(movie + 0x10Cu + i) << std::dec;
-                std::cerr << std::endl;
-            }
         }
+
         // GOW_MPEG_PICDUMP=<n>: write decoded picture n of each movie to mpeg_pic_<n>.ppm (decoder output check)
         static const long s_picDump = std::getenv("GOW_MPEG_PICDUMP") ? std::atol(std::getenv("GOW_MPEG_PICDUMP")) : -1L;
         if (haveFrame && static_cast<long>(frameCount) == s_picDump && frame.rgba.size() >= static_cast<size_t>(width) * height * 4u)
@@ -2958,9 +2910,11 @@ namespace ps2_stubs
         mpegGuestWrite32(rdram, inner + 0x04, 0u);
         mpegGuestWrite32(rdram, inner + 0x08, 0u);
         mpegGuestWrite32(rdram, param_1 + 0x08, 0u);
-        mpegGuestWrite32(rdram, inner + 0x80, 0xFFFFFFFFu);
-        mpegGuestWrite32(rdram, inner + 0xAC, 0u);
-        mpegGuestWrite32(rdram, 0x171904u, 0u);
+        for (unsigned offset : {0x878u, 0xC0u, 0x858u, 0x128u, 0x1C0u})
+            mpegGuestWrite32(rdram, inner + offset, 0);
+        mpegGuestWrite32(rdram, inner + 0x828, 1);
+        mpegGuestWrite32(rdram, inner + 0x98, UINT32_MAX);
+        setReturnU32(ctx, 1);
     }
 
     void sceMpegResetDefaultPtsGap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

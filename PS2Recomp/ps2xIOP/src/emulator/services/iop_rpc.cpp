@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
 #include <sstream>
 #include <array>
 #include <cstring>
@@ -175,6 +176,8 @@ namespace ps2x::iop::detail
             return true;
         case 12: // sceSifSendCmd
         case 13: // isceSifSendCmd
+        case 28: // sceSifSendCmdIntr
+        case 29: // isceSifSendCmdIntr
         {
             constexpr uint32_t kHeaderSize = 16u;
             constexpr uint32_t kMaxPacketSize = 112u;
@@ -189,6 +192,8 @@ namespace ps2x::iop::detail
             if (packetAddress == 0u || packetSize < kHeaderSize || packetSize > kMaxPacketSize ||
                 !m_memory.ownsRamRange(packetAddress, packetSize))
             {
+                if (std::getenv("COSMIC_IOP_COMMAND_TRACE"))
+                    std::fprintf(stderr, "[cosmic-iop-send] invalid packet cid=%x address=%x size=%u\n", commandId, packetAddress, packetSize);
                 setV0(0u);
                 return true;
             }
@@ -208,6 +213,8 @@ namespace ps2x::iop::detail
                     !m_memory.ownsRamRange(extraSource, extraSize) ||
                     !m_host.writeGuest(extraDestination, m_memory.ram().data() + IopMemory::physicalAddress(extraSource), extraSize))
                 {
+                    if (std::getenv("COSMIC_IOP_COMMAND_TRACE"))
+                        std::fprintf(stderr, "[cosmic-iop-send] invalid extra cid=%x source=%x destination=%x size=%u\n", commandId, extraSource, extraDestination, extraSize);
                     setV0(0u);
                     return true;
                 }
@@ -222,6 +229,9 @@ namespace ps2x::iop::detail
             {
                 // A command without an EE handler is still a completed DMA on  real hardware. Only malformed packets fail above.
             }
+
+            if ((ordinal == 28u || ordinal == 29u) && m_memory.read32(stackPointer + 24u) != 0u)
+                m_dmaCallback = {m_memory.read32(stackPointer + 24u), m_memory.read32(stackPointer + 28u), cpu.gpr[28]};
 
             const uint32_t dmaId = m_nextDmaId++;
             if (m_nextDmaId == 0u || m_nextDmaId > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))
@@ -309,8 +319,6 @@ namespace ps2x::iop::detail
         case 25:
         case 26:
         case 27:
-        case 28:
-        case 29:
             setV0(0);
             return true;
         default:

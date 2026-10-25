@@ -235,11 +235,21 @@ int main(int argc, char *argv[])
             return 1;
         }
 
+        if (const char *saveDirectory = std::getenv("COSMIC_SAVE_DIR"))
+        {
+            auto paths = PS2Runtime::getIoPaths();
+            paths.mcRoot = std::filesystem::absolute(saveDirectory);
+            std::filesystem::create_directories(paths.mcRoot);
+            PS2Runtime::setIoPaths(paths);
+        }
+
         ps2InstallEeDiff(runtime);
         ps2InstallEeWatch(runtime);
         ps2InstallEePageWatch(runtime);
         std::jthread diagnostics;
         if (std::getenv("COSMIC_DIAGNOSTICS"))
+        {
+            std::fprintf(stderr, "[cosmic-ram] base=%p\n", static_cast<void *>(runtime.memory().getRDRAM()));
             diagnostics = std::jthread([&runtime](std::stop_token stop)
             {
                 while (!stop.stop_requested())
@@ -253,6 +263,7 @@ int main(int argc, char *argv[])
                             thread.id, thread.pc, thread.ra, int(thread.status), int(thread.waitReason), thread.waitId, thread.invocationDepth);
                 }
             });
+        }
         runtime.run();
         diagnostics.request_stop();
         if (diagnostics.joinable()) diagnostics.join();

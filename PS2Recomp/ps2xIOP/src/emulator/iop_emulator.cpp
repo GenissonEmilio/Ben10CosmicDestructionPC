@@ -378,8 +378,15 @@ namespace ps2x::iop::detail
                 return ImportDisposition::Handled;
             if (iequals(call.library, "thevent") && kernel.dispatchEventImport(call.ordinal, cpu))
                 return ImportDisposition::Handled;
-            if (iequals(call.library, "sifcmd") && rpc.dispatchSifCmdImport(call.ordinal, cpu))
-                return ImportDisposition::Handled;
+            if (iequals(call.library, "sifcmd"))
+            {
+                const bool handled = rpc.dispatchSifCmdImport(call.ordinal, cpu);
+                IopRpcBridge::DmaCompletionCallback callback{};
+                if (rpc.takeDmaCompletionCallback(callback))
+                    pendingGuestCallbacks.emplace(totalCycles + kSifDmaCompletionCycles,
+                        ScheduledGuestCallback{callback.function, callback.gp, callback.argument});
+                if (handled) return ImportDisposition::Handled;
+            }
             if (iequals(call.library, "intrman") && intrman.dispatchImport(call.ordinal, cpu, *this))
                 return ImportDisposition::Handled;
             if (iequals(call.library, "secrman"))
@@ -1004,6 +1011,10 @@ namespace ps2x::iop::detail
             {
                 size_t overrideCount = 0;
                 const IopNativeOverride *overrides = iopNativeOverrides(overrideCount);
+                // Only the verified Cosmic LIBSD build has native SDK bridges.
+                // Matching a filename/text length alone is insufficient.
+                if (ident != "libsd_irx" || hash != 0x8860fd63803a17c1ull)
+                    overrideCount = 0u;
                 for (size_t i = 0; i < overrideCount; ++i)
                     if (ident == overrides[i].module && overrides[i].offset < module.textSize &&
                         (overrides[i].textSize == 0u || overrides[i].textSize == module.textSize))

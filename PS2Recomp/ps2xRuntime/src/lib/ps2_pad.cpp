@@ -2,6 +2,10 @@
 #include "ps2_host_backend.h"
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <chrono>
+#include <string>
+#include <vector>
 
 #ifdef _WIN32
 bool ps2PadWindowsRumble(uint8_t large, bool small); // ps2_pad_rumble_win.cpp
@@ -28,6 +32,58 @@ namespace
     constexpr uint16_t PAD_L1 = 0x0400u;
     constexpr uint16_t PAD_R2 = 0x0200u;
     constexpr uint16_t PAD_L2 = 0x0100u;
+
+    // Repeatable input for local integration tests. Adapted from the GPL-3.0
+    // GodOfWar2PC diagnostic script, without any game-specific PAD2 addresses.
+    struct ScriptPress { double from, to, period; uint32_t mask; };
+    uint32_t scriptedButtons()
+    {
+        static const char *text = std::getenv("COSMIC_PAD_SCRIPT");
+        if (!text) return 0;
+        static const auto presses = [] {
+            const std::pair<const char *, uint32_t> buttons[] = {
+                {"select", PAD_SELECT}, {"start", PAD_START}, {"up", PAD_UP},
+                {"down", PAD_DOWN}, {"left", PAD_LEFT}, {"right", PAD_RIGHT},
+                {"x", PAD_CROSS}, {"o", PAD_CIRCLE}, {"sq", PAD_SQUARE},
+                {"tri", PAD_TRIANGLE}, {"l1", PAD_L1}, {"r1", PAD_R1},
+                {"l2", PAD_L2}, {"r2", PAD_R2}, {"lup", 0x10000},
+                {"ldown", 0x20000}, {"lleft", 0x40000}, {"lright", 0x80000}};
+            std::vector<ScriptPress> result;
+            std::string item;
+            for (const char *c = text;; ++c) {
+                if (*c && *c != ',') { item += *c; continue; }
+                const auto colon = item.find(':');
+                if (colon != std::string::npos) {
+                    const auto when = item.substr(0, colon), name = item.substr(colon + 1);
+                    char *end = nullptr;
+                    ScriptPress press{};
+                    press.from = press.to = std::strtod(when.c_str(), &end);
+                    if (end && *end == '-') press.to = std::strtod(end + 1, &end);
+                    if (end && *end == '/') press.period = std::strtod(end + 1, &end);
+                    for (const auto &[button, mask] : buttons)
+                        if (name == button) press.mask = mask;
+                    if (end && !*end && press.mask && press.from >= 0 &&
+                        press.to >= press.from && press.period >= 0) result.push_back(press);
+                }
+                item.clear();
+                if (!*c) break;
+            }
+            return result;
+        }();
+        static const auto started = std::chrono::steady_clock::now();
+        const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        uint32_t pressed = 0;
+        for (const auto &press : presses) {
+            if (now < press.from || now > press.to + 0.3) continue;
+            const double elapsed = now - press.from;
+            const double phase = press.period > 0 ? elapsed - press.period * long(elapsed / press.period) : elapsed;
+            if ((press.period <= 0 && press.to > press.from) || phase < 0.3) pressed |= press.mask;
+        }
+        static uint32_t previous = 0;
+        if (pressed != previous) std::fprintf(stderr, "[cosmic-pad-script] t=%.1f buttons=%05x\n", now, pressed);
+        previous = pressed;
+        return pressed;
+    }
 
     void loadGamepadMappings()
     {
@@ -140,13 +196,13 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
     }
     else
     {
-        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W))
+        if (IsKeyDown(KEY_UP))
             clearBit(PAD_UP);
-        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S))
+        if (IsKeyDown(KEY_DOWN))
             clearBit(PAD_DOWN);
-        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))
+        if (IsKeyDown(KEY_LEFT))
             clearBit(PAD_LEFT);
-        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))
+        if (IsKeyDown(KEY_RIGHT))
             clearBit(PAD_RIGHT);
         if (IsKeyDown(KEY_X) || IsKeyDown(KEY_SPACE))
             clearBit(PAD_CROSS);
@@ -168,7 +224,18 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             clearBit(PAD_START);
         if (IsKeyDown(KEY_TAB))
             clearBit(PAD_SELECT);
+        data[6] = IsKeyDown(KEY_A) ? 0 : IsKeyDown(KEY_D) ? 255 : 128;
+        data[7] = IsKeyDown(KEY_W) ? 0 : IsKeyDown(KEY_S) ? 255 : 128;
+        data[4] = IsKeyDown(KEY_J) ? 0 : IsKeyDown(KEY_L) ? 255 : 128;
+        data[5] = IsKeyDown(KEY_I) ? 0 : IsKeyDown(KEY_K) ? 255 : 128;
     }
+
+    const uint32_t scripted = scriptedButtons();
+    btns &= ~uint16_t(scripted);
+    if (scripted & 0x10000) data[7] = 0;
+    if (scripted & 0x20000) data[7] = 255;
+    if (scripted & 0x40000) data[6] = 0;
+    if (scripted & 0x80000) data[6] = 255;
 
     data[2] = static_cast<uint8_t>(btns & 0xFF);
     data[3] = static_cast<uint8_t>(btns >> 8);

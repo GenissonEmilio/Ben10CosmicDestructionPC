@@ -8,13 +8,18 @@ g++ -std=c++20 -O1 -msse4.1 -fno-strict-aliasing \
   -IPS2Recomp/ps2xRuntime/include -IPS2Recomp/ps2xIOP/include \
   -IPS2Recomp/ps2xRuntime/src/lib/Kernel -IPS2Recomp/ps2xIOP/src \
   -I"$kit/source/raylib" \
+  -IPS2Recomp/ps2xRuntime/third_party/libmpeg2 \
   tests/native_regressions.cpp PS2Recomp/ps2xTest/src/test_function_table.cpp \
   overrides/cosmic_overrides.cpp \
   PS2Recomp/ps2xIOP/src/native/iop_native_overrides.cpp \
   PS2Recomp/ps2xIOP/src/emulator/iop_emulator.cpp \
+  PS2Recomp/ps2xIOP/src/emulator/services/iop_rpc.cpp \
   PS2Recomp/ps2xRuntime/src/lib/gow2_desktop.cpp \
   PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/CD.cpp \
+  PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/SIF.cpp \
   PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/RPC.cpp \
+  PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp \
+  PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/IPU.cpp \
   -Wl,--start-group "$kit/lib/libps2_runtime.a" "$kit/lib/libps2_iop.a" \
   "$kit/lib/liblibmpeg2.a" "$kit/lib/libraylib.a" -Wl,--end-group \
   -lGL -lX11 -pthread -ldl -lm -static-libstdc++ -static-libgcc \

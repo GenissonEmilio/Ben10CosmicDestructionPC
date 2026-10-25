@@ -8,8 +8,72 @@
 #include <filesystem>
 #include <fstream>
 #include <array>
+#include "Stubs/MPEG.h"
 
 namespace {
+void mpegWorkspaceStaysInsideCallerStorage() {
+    using namespace iop_test;
+    PS2Runtime runtime;
+    require(runtime.memory().initialize(), "guest RAM initialization failed");
+    auto *ram = runtime.memory().getRDRAM();
+    auto word = [ram](uint32_t address) -> uint32_t & { return *reinterpret_cast<uint32_t *>(ram + address); };
+    word(0x1717bcu) = 0x12345678u;
+    word(0x171800u) = 0x87654321u;
+    word(0x9000u) = 0xabcdef01u;
+    R5900Context context{};
+    ps2_stubs::sceMpegInit(ram, &context, &runtime);
+    SET_GPR_U32(&context, 4, 0x2000); SET_GPR_U32(&context, 5, 0x4000); SET_GPR_U32(&context, 6, 0x5000);
+    ps2_stubs::sceMpegCreate(ram, &context, &runtime);
+    require(getRegU32(&context, 2) == 1, "MPEG Create returned a pointer instead of success");
+    require(word(0x2040) == 0x4000 && word(0x41c8) == 0x41f8, "MPEG workspace/reference layout is incompatible");
+    require(word(0x4024) == 0x463258 && word(0x4030) == 0x463280, "MPEG callbacks refer to the wrong SDK");
+    require(word(0x9000) == 0xabcdef01u, "MPEG initialization wrote outside its supplied work area");
+    require(word(0x1717bc) == 0x12345678u && word(0x171800) == 0x87654321u,
+            "MPEG initialization overwrote executable addresses from another game");
+    word(0x41f8 + 0x28) = 7;
+    ps2_stubs::sceMpegClearRefBuff(ram, &context, &runtime);
+    require(word(0x41f8 + 0x28) == 0, "MPEG reference buffers were not cleared in caller storage");
+    word(0x4878) = 1;
+    ps2_stubs::sceMpegReset(ram, &context, &runtime);
+    require(word(0x4878) == 0 && word(0x4098) == UINT32_MAX, "MPEG reset used the wrong SDK layout");
+    ps2_stubs::enqueueMpegDecodedFrameForTesting(0x2000);
+    SET_GPR_U32(&context, 5, 0xa000); SET_GPR_U32(&context, 6, 1);
+    word(0xa400) = 0xabcdef01u;
+    ps2_stubs::sceMpegGetPicture(ram, &context, &runtime);
+    require(word(0x2000) == 16 && word(0x2004) == 16, "MPEG decoded dimensions were not delivered");
+    require(word(0xa000) == 0x80808080u && word(0xa400) == 0xabcdef01u,
+            "MPEG macroblock output is absent or exceeds capacity");
+    require(word(0x40c4) == 1 && word(0x40ec) == 0x2000a000, "MPEG picture metadata uses the wrong SDK layout");
+}
+
+void interruptCommandSignalsCompletion() {
+    using namespace iop_test;
+    Host host;
+    Irx image(0x10000u, 0x700u);
+    image.words(0u, {
+        0x27bdffa0u, 0xafbf005cu,
+        0x24040005u, 0x3c050001u, 0x34a50300u, 0x24060010u, 0x00003821u,
+        0xafa00010u, 0xafa00014u, 0x3c020001u, 0x34420100u, 0xafa20018u,
+        0x3402cafeu, 0xafa2001cu, 0x0c004085u, 0u,
+        0x3c030001u, 0xac620404u,
+        0x240403e8u, 0x0c004095u, 0u,
+        0x8fbf005cu, 0x27bd0060u, 0x00001021u, 0x03e00008u, 0u,
+    });
+    image.words(0x100u, {0x3c030001u, 0xac640400u, 0x03e00008u, 0u});
+    image.words(0x200u, {0x41e00000u, 0u, 0x0101u, 0x63666973u, 0x0000646du,
+                       0x03e00008u, 0x2400001cu, 0u, 0u});
+    image.words(0x240u, {0x41e00000u, 0u, 0x0101u, 0x61626874u, 0x00006573u,
+                       0x03e00008u, 0x24000021u, 0u, 0u});
+    image.words(0x300u, {16u, 0u, 5u, 0u});
+    image.install(host);
+    ps2x::iop::detail::IopEmulator emulator(host);
+    require(emulator.loadModuleBuffer(0x1000u, nullptr, 0u).moduleId > 0, "interrupt command module did not load");
+    uint32_t result[2]{};
+    require(emulator.readMemory(0x10400u, result, sizeof(result)), "interrupt command result read failed");
+    require(result[1] != 0u, "SendCmdIntr did not return a DMA identifier");
+    require(result[0] == 0xcafeu, "SendCmdIntr did not invoke its completion callback with the argument");
+}
+
 void commandReachesRegisteredIopHandler() {
     using namespace iop_test;
     Host host;
@@ -144,8 +208,10 @@ int main(int argc, char **argv) {
     if (argc != 2) return 2;
     try {
     outsideDelayRunsWorkers();
+    interruptCommandSignalsCompletion();
     commandReachesRegisteredIopHandler();
     commandExtraDataUsesIopAddressSpace();
+    mpegWorkspaceStaysInsideCallerStorage();
     extractedCdAndBusyCommands(std::filesystem::path(argv[1]));
     std::cout << "Native regression checks passed\n";
     } catch (const std::exception &error) {

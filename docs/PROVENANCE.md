@@ -10,6 +10,8 @@ O runtime inclui contribuições e referências de Waffle565, YYOzcan/Tobiichi-P
 
 Os overrides de God of War II, seu mapa de funções, suas capturas de IOP/VU e seus endereços de patch não foram importados como configuração de Ben 10. O executável de entrada e o título do runtime foram adaptados para o novo projeto.
 
+Uma exceção verificada é a ponte de funções do SDK de áudio LIBSD (GPL-3.0): a seção `.text` do módulo fornecido pelo disco de Ben 10 é idêntica à da base, com 19.376 bytes e SHA-256 `cc9151a9f6a446dfc1b9d2cae2db686b9b338af8162a74ca4905df33d156cb87`. Foram adaptadas somente essas funções de SDK. A ativação também exige tamanho e hash FNV do código relocacionado compatíveis; módulos de outros jogos não recebem hooks apenas pelo nome. Os módulos binários não são distribuídos.
+
 Para a primeira prova de execução local, foram reutilizadas bibliotecas estáticas genéricas e o GCC portátil do kit de GodOfWar2PC; `libbase.a`, que contém patches específicos de God of War II, foi excluída. O script de build público recompila as bibliotecas a partir do código incluído.
 
 O projeto https://github.com/ExtremestoneGG/Cosmic-Recompi foi consultado; ele tem como alvo Xbox 360/Windows e não foi incorporado a esta implementação PS2.

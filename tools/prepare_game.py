@@ -8,11 +8,13 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools/desktop"))
 from import_disc import EXPECTED, import_disc, sha256
 from build_native import build
+from adopt_translation import retain_shared_declarations, adopt
 
 
 def prepare(source, work, kit, optimize="2", jobs=1):
@@ -31,9 +33,16 @@ def prepare(source, work, kit, optimize="2", jobs=1):
                              (kit / "bin/ps2_recomp").read_bytes()).hexdigest()
         stamp = work / ".translation-key"
         if not stamp.exists() or stamp.read_text() != key:
-            (work / "config.toml").write_text(config)
-            env = dict(os.environ, LD_LIBRARY_PATH=str(kit / "lib"))
-            subprocess.run([str(kit / "bin/ps2_recomp"), str(work / "config.toml")], env=env, check=True)
+            with tempfile.TemporaryDirectory(prefix=".translation-", dir=work) as temporary:
+                staged = Path(temporary)
+                target = staged / "output"
+                stage_config = template.replace("@ELF@", str(boot)).replace("@OUT@", str(target) + "/")
+                (staged / "config.toml").write_text(stage_config)
+                env = dict(os.environ, LD_LIBRARY_PATH=str(kit / "lib"))
+                subprocess.run([str(kit / "bin/ps2_recomp"), str(staged / "config.toml")], env=env, check=True)
+                extra = staged / "extra"
+                retain_shared_declarations(work / "output", target, extra)
+                adopt(work / "output", target, work / "generated-extra", extra)
             stamp.write_text(key)
         return build(kit, work, optimize, jobs)
 

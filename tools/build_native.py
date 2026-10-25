@@ -36,6 +36,8 @@ def build(kit, stage, optimize="2", jobs=1):
                 source / "PS2Recomp/ps2xRuntime/src/lib/Kernel",
                 source / "PS2Recomp/ps2xIOP/src",
                 source / "PS2Recomp/ps2xRuntime/src/lib/vu"]
+    # Decoder headers are not part of the generated-code ABI fingerprint.
+    decoder_headers = source / "PS2Recomp/ps2xRuntime/third_party/libmpeg2"
     flags = [str(tc / "bin/g++"), "--sysroot=" + str(tc / "sysroot"),
              "-B" + str(tc / "lib/gcc/x86_64-linux-gnu/13") + "/",
              "-std=c++20", "-O" + optimize, "-DNDEBUG", "-msse4.1",
@@ -68,8 +70,13 @@ def build(kit, stage, optimize="2", jobs=1):
         "PS2Recomp/ps2xIOP/src/emulator/iop_emulator.cpp",
         "PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/RPC.cpp",
         "PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/SIF.cpp",
+        "PS2Recomp/ps2xIOP/src/emulator/services/iop_rpc.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/ps2_pad.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp",
+        "PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/IPU.cpp",
     )])
     batches.extend([[path] for path in sorted((ROOT / "overrides").glob("*.cpp"))])
+    batches.extend([[path] for path in sorted((stage / "generated-extra").glob("*.cpp"))])
     # Compile only our main: God of War's libbase.a contains title-specific patches.
     stopped = threading.Event()
     def compile_batch(item):
@@ -80,9 +87,13 @@ def build(kit, stage, optimize="2", jobs=1):
         unit.write_text("\n".join('#include "' + str(p) + '"' for p in batch) + "\n")
         obj, stamp = unit.with_suffix(".o"), unit.with_suffix(".key")
         key = fingerprint(batch, [header_key])
+        batch_flags = flags
+        if any(path.name == "MPEG.cpp" for path in batch):
+            batch_flags = [*flags, "-I" + str(decoder_headers)]
+            key = fingerprint([*batch, *decoder_headers.glob("*.h")], [header_key])
         if not (obj.is_file() and stamp.is_file() and stamp.read_text() == key):
             try:
-                subprocess.run([*flags, "-c", str(unit), "-o", str(obj)], env=env, check=True)
+                subprocess.run([*batch_flags, "-c", str(unit), "-o", str(obj)], env=env, check=True)
                 stamp.write_text(key)
             except BaseException:
                 stopped.set()

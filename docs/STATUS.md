@@ -1,6 +1,6 @@
 # Validação
 
-Estado inicial em 25/10/2026:
+Estado de desenvolvimento em 25/10/2026:
 
 - Disco PS2 americano SLUS-21938, versão 1.01, identificado e importado: 471 arquivos, uma camada.
 - Executável sem símbolos, SHA-256 `f4d62e6475a2b168401f0e21a689a9b37252cf80e054deda1076a74729b01cde`.
@@ -13,8 +13,13 @@ Estado inicial em 25/10/2026:
 - Separada a memória interna do runtime do heap usado pelo jogo, com override condicionado ao nome, entry point e CRC do ELF suportado.
 - Corrigidos argumentos EE de `sceSifSendCmd` e sua variante interna. Transferências extras agora chegam à RAM do IOP sem sobrescrever o endereço equivalente da RAM EE.
 - Implementados registro/remoção e entrega de comandos EE → IOP; o módulo de streaming passou a ler o disco.
-- Testes C++ sem ROM validam tarefas durante `DelayThread`, leitura de setores, estado de CD ocupado, argumentos de comandos, reset de handlers e separação dos espaços de memória.
-- Os testes limitados do jogo ainda mostram tela preta e tarefas aguardando respostas de streaming. Isso é um bloqueio de runtime, não sucesso de gameplay.
-- Menus, combate, áudio, saves e campanha **ainda não validados**.
+- Implementadas as variantes IOP `SifSendCmdIntr`/`iSifSendCmdIntr`, incluindo callback de conclusão da transferência.
+- Ativada a ponte nativa de funções LIBSD somente para o módulo cujo tamanho e hash de código foram verificados; FMOD deixa de aguardar a inicialização do áudio.
+- A busca de arquivo com camada usa o índice real do disco de camada única suportado.
+- Acrescentados destinos indiretos de tabelas/vtables e continuações de chamadas ausentes no mapa inicial.
+- Testes C++ sem ROM validam tarefas durante `DelayThread`, leitura de setores, estado de CD ocupado, argumentos de comandos, callbacks de conclusão, reset de handlers e separação dos espaços de memória.
+- Dez testes Python validam importação, preservação do dispatch e rollback da atualização do código gerado.
+- Em teste limitado local, o executável nativo exibiu o carregamento com Omnitrix e a tela original de criação de save, com texto e interface renderizados. Isso ainda não valida uma partida.
+- Menu principal, combate, áudio correto, persistência dos saves e campanha **ainda não validados**.
 
 Nenhuma release jogável será declarada apenas pela conclusão do build.

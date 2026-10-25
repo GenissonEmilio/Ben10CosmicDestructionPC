@@ -24,31 +24,7 @@ namespace ps2_stubs
 
     void sceSifSendCmd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        const uint32_t srcAddr = getRegU32(ctx, 7); // $a3
-        const uint32_t dstAddr = readStackU32(rdram, ctx, 16);
-        const uint32_t size = readStackU32(rdram, ctx, 20);
-        if (size != 0u && srcAddr != 0u && dstAddr != 0u)
-        {
-            std::vector<uint8_t> payload(size);
-            bool valid = runtime != nullptr;
-            for (uint32_t i = 0; i < size; ++i)
-            {
-                const uint8_t *src = getConstMemPtr(rdram, srcAddr + i);
-                if (!src)
-                {
-                    valid = false;
-                    break;
-                }
-                payload[i] = *src;
-            }
-            if (!valid || !runtime->writeIopMemory(dstAddr, payload.data(), payload.size()))
-            {
-                setReturnS32(ctx, 0);
-                return;
-            }
-        }
-
-        setReturnS32(ctx, 1);
+        ps2_syscalls::sceSifSendCmd(rdram, ctx, runtime);
     }
 
     namespace
@@ -248,11 +224,17 @@ namespace ps2_stubs
         }
 
         if (!runtime->hasFunction(registered.function))
+        {
+            if (std::getenv("COSMIC_IOP_COMMAND_TRACE")) std::fprintf(stderr, "[cosmic-ee-command] missing handler=%x\n", registered.function);
             return false;
+        }
 
         const uint32_t packetAddress = runtime->guestMalloc(static_cast<uint32_t>(packetSize), 16u);
         if (packetAddress == 0u)
+        {
+            if (std::getenv("COSMIC_IOP_COMMAND_TRACE")) std::fprintf(stderr, "[cosmic-ee-command] packet allocation failed\n");
             return false;
+        }
 
         uint8_t *const first = getMemPtr(rdram, packetAddress);
         uint8_t *const last = getMemPtr(rdram, packetAddress + static_cast<uint32_t>(packetSize - 1u));
@@ -278,11 +260,13 @@ namespace ps2_stubs
             SET_GPR_U32(&invocation.context, 7, 0u);
             SET_GPR_U32(&invocation.context, 29, 0u);
             SET_GPR_U32(&invocation.context, 31, 0u);
-            invocation.onComplete = [runtime, packetAddress](const R5900Context &, R5900Context &)
+            invocation.onComplete = [runtime, packetAddress, commandId](const R5900Context &, R5900Context &)
             {
+                if (std::getenv("COSMIC_IOP_COMMAND_TRACE")) std::fprintf(stderr, "[cosmic-ee-command] completed cid=%x\n", commandId);
                 runtime->guestFree(packetAddress);
             };
             runtime->eeScheduler().queueInvocation(std::move(invocation));
+            if (std::getenv("COSMIC_IOP_COMMAND_TRACE")) std::fprintf(stderr, "[cosmic-ee-command] queued cid=%x packet=%x argument=%x\n", commandId, packetAddress, registered.argument);
             return true;
         }
         catch (...)

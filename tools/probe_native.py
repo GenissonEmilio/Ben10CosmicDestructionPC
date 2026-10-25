@@ -19,15 +19,15 @@ def probe(game, boot, destination, kit, seconds=45, visible=False, buttons=""):
     for name in ("PYTHONHOME", "PYTHONPATH", "GI_TYPELIB_PATH", "GIO_EXTRA_MODULES", "GTK_PATH"):
         env.pop(name, None)
     env.update(LD_LIBRARY_PATH=str(Path(kit).resolve() / "lib"), LP_NUM_THREADS="2",
-               GOW_WINDOW="960x540", GOW_MC0=str(destination / "memcards/Mcd001.ps2"),
+               GOW_WINDOW="960x540", COSMIC_SAVE_DIR=str(destination / "memcards"),
                COSMIC_SHOT_DIR=str(destination / "frames"), COSMIC_EXIT_SECONDS=str(seconds),
                # Compatibility with the first boot binary built from the base kit.
                GOW2_SHOT_DIR=str(destination / "frames"), GOW2_EXIT_SECONDS=str(seconds),
-               PS2X_IOP_NATIVE="0", PS2X_GS_WORKER="1")
+               PS2X_IOP_NATIVE=env.get("PS2X_IOP_NATIVE", "1"), PS2X_GS_WORKER="1")
     if not visible:
         env["PS2X_HIDDEN_WINDOW"] = "1"
     if buttons:
-        env["GOW2_PAD_SCRIPT"] = buttons
+        env["COSMIC_PAD_SCRIPT"] = buttons
     started = time.monotonic()
     forced = False
     with (destination / "game.log").open("w") as output:
